@@ -7,6 +7,10 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 import os
+import tempfile
+from eeg_processor import run_inference, build_figures
+from dotenv import load_dotenv
+import os
 
 # Load environment variables
 load_dotenv()
@@ -82,46 +86,100 @@ def login():
 
 
 # ---------------- EEG PROCESSING ----------------
-def process_eeg(file):
+def process_eeg(file_obj):
+    # Save the file temporarily
+    temp_dir = tempfile.gettempdir()
+    temp_path = os.path.join(temp_dir, file_obj.filename)
+    file_obj.save(temp_path)
+    
     try:
-        df = pd.read_csv(file)
-
-        mean_val = df.mean().mean()
-        std_val = df.std().mean()
-
-        return mean_val, std_val
+        df, segments, raw_eeg, raw_t, meta = run_inference(temp_path)
+        figs = build_figures(df, segments, raw_eeg, raw_t, meta)
+        
+        return {
+            "df": df.to_dict('records'),
+            "segments": segments,
+            "meta": meta,
+            "figs": figs
+        }
     except Exception as e:
         print("EEG processing error:", e)
-        return 0, 0
+        return None
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 # ---------------- RISK MODEL ----------------
-def predict_risk(mir134, il6, s100b, eeg_mean, eeg_std):
-    score = (
-        mir134 * 0.3 +
-        il6 * 0.25 +
-        s100b * 0.25 +
-        eeg_mean * 0.1 +
-        eeg_std * 0.1
-    )
+def predict_risk(mir134, il6, s100b, eeg_meta=None):
+    score = 0
+    
+    # miR-134 rules (below 1.5: low, 1.5-3: mod, >3: high)
+    if mir134 > 3:
+        score += 3
+    elif mir134 >= 1.5:
+        score += 2
+    else:
+        score += 1
+        
+    # IL-6 rules (1-10: healthy, 10-30: mid, >30: high)
+    if il6 > 30:
+        score += 3
+    elif il6 >= 10:
+        score += 2
+    else:
+        score += 1
+        
+    # S100B rules (<0.05: healthy, 0.05-0.1: mod, >0.1: high)
+    if s100b > 0.1:
+        score += 3
+    elif s100b >= 0.05:
+        score += 2
+    else:
+        score += 1
+    
+    # Add EEG risk if available
+    if eeg_meta:
+        total = max(eeg_meta.get("n_windows", 1), 1)
+        ictal_ratio = eeg_meta.get("ictal_windows", 0) / total
+        preictal_ratio = eeg_meta.get("preictal_windows", 0) / total
+        score += (ictal_ratio * 5.0) + (preictal_ratio * 2.0)
 
-    prediction = "High Risk" if score > 5 else "Low Risk"
-
+    # Determine final prediction
+    if score >= 7:
+        prediction = "High Risk"
+    elif score >= 5:
+        prediction = "Moderate Risk"
+    else:
+        prediction = "Low Risk"
+        
     return score, prediction
 
 
 # ---------------- LLM REPORT ----------------
 def generate_report(data):
     try:
-        prompt = f"""
-        Explain the following biomarker values in simple terms:
+        eeg_info = "No EEG data provided."
+        if data.get("meta"):
+            meta = data["meta"]
+            eeg_info = f"{meta.get('ictal_windows', 0)} ictal windows and {meta.get('preictal_windows', 0)} pre-ictal windows detected out of {meta.get('n_windows', 0)} total."
 
-        miR-134: {data['mir134']}
-        IL-6: {data['il6']}
-        S100B: {data['s100b']}
-        """
+        prompt = f"""<|system|>
+You are an expert neurologist AI. Write a concise, professional clinical report based on the following patient data. Provide a short summary explaining the biomarker findings, the EEG findings, and the overall seizure risk. Do not output anything other than the report. Keep it under 200 words.
+<|user|>
+Biomarkers:
+miR-134: {data.get('mir134', 'N/A')}
+IL-6: {data.get('il6', 'N/A')}
+S100B: {data.get('s100b', 'N/A')}
 
-        API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
+EEG Analysis:
+{eeg_info}
+
+Risk Prediction: {data.get('prediction', 'Unknown')}
+<|assistant|>
+"""
+
+        API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
         headers = {
             "Authorization": f"Bearer {HF_API_KEY}"
         }
@@ -129,14 +187,17 @@ def generate_report(data):
         response = requests.post(
             API_URL,
             headers=headers,
-            json={"inputs": prompt},
-            timeout=10
+            json={"inputs": prompt, "parameters": {"max_new_tokens": 250, "return_full_text": False, "temperature": 0.2}},
+            timeout=15
         )
 
         output = response.json()
 
         if isinstance(output, list):
-            return output[0].get("generated_text", "No report generated")
+            text = output[0].get("generated_text", "No report generated")
+            return text.strip()
+        elif isinstance(output, dict) and "error" in output:
+            return f"Model error: {output['error']}"
 
         return str(output)
 
@@ -164,17 +225,23 @@ def predict():
 
         eeg_file = request.files.get("eeg")
 
-        eeg_mean, eeg_std = process_eeg(eeg_file) if eeg_file else (0, 0)
+        eeg_results = None
+        if eeg_file and eeg_file.filename.endswith('.edf'):
+            eeg_results = process_eeg(eeg_file)
+
+        eeg_meta = eeg_results["meta"] if eeg_results else None
 
         score, prediction = predict_risk(
-            mir134, il6, s100b, eeg_mean, eeg_std
+            mir134, il6, s100b, eeg_meta
         )
 
         # 🔥 Generate LLM report
         report = generate_report({
             "mir134": mir134,
             "il6": il6,
-            "s100b": s100b
+            "s100b": s100b,
+            "meta": eeg_meta,
+            "prediction": prediction
         })
 
         # Save to DB
@@ -186,8 +253,8 @@ def predict():
             mir134=mir134,
             il6=il6,
             s100b=s100b,
-            eeg_mean=eeg_mean,
-            eeg_std=eeg_std,
+            eeg_mean=0, # Deprecated with EDF approach, maintaining for DB compatibility
+            eeg_std=0,  # Deprecated with EDF approach, maintaining for DB compatibility
             risk_score=round(score, 2),
             risk_prediction=prediction,
             report=report
@@ -195,11 +262,16 @@ def predict():
         db.session.add(record)
         db.session.commit()
 
-        return jsonify({
+        response_data = {
             "prediction": prediction,
             "score": round(score, 2),
             "report": report
-        })
+        }
+        
+        if eeg_results:
+            response_data["eeg_data"] = eeg_results
+
+        return jsonify(response_data)
 
     except Exception as e:
         print("Error:", e)
