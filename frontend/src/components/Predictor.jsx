@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import Plot from "react-plotly.js";
 import { jsPDF } from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 
 const Predictor = ({ user }) => {
   const [form, setForm] = useState({
@@ -81,7 +81,7 @@ const Predictor = ({ user }) => {
     doc.text("Clinical AI Risk Assessment", 105, 20, { align: "center" });
 
     // Patient Info Table
-    doc.autoTable({
+    autoTable(doc, {
       startY: 40,
       head: [['Patient Details', 'Value']],
       body: [
@@ -98,7 +98,7 @@ const Predictor = ({ user }) => {
 
     // Biomarkers Table
     let previousY = doc.lastAutoTable ? doc.lastAutoTable.finalY : 70;
-    doc.autoTable({
+    autoTable(doc, {
       startY: previousY + 10,
       head: [['Biomarker Analysis', 'Level']],
       body: [
@@ -115,7 +115,7 @@ const Predictor = ({ user }) => {
     previousY = doc.lastAutoTable ? doc.lastAutoTable.finalY : previousY + 40;
     if (result.eeg_data && result.eeg_data.meta) {
       const m = result.eeg_data.meta;
-      doc.autoTable({
+      autoTable(doc, {
         startY: previousY + 10,
         head: [['EEG Segment Summary', 'Value']],
         body: [
@@ -460,7 +460,8 @@ const styles = {
     backgroundColor: "#0f172a",
     padding: "20px",
     borderRadius: "8px",
-    border: "1px solid #1e293b"
+    border: "1px solid #1e293b",
+    whiteSpace: "pre-wrap"
   },
   eegDashboard: {
     backgroundColor: "#1e293b",

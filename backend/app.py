@@ -167,7 +167,11 @@ def generate_report(data):
         system_content = """You are a factual medical AI assisting a patient. 
 Write a concise, easy-to-understand summary explaining their results based ONLY on the provided findings. 
 Use plain language that the general public can understand. Avoid complex medical jargon. Explain what the biomarker levels and EEG findings mean in simple, everyday terms.
-Do not hallucinate, do not add external information, and do not make assumptions beyond what is explicitly given."""
+Do not hallucinate, do not add external information, and do not make assumptions beyond what is explicitly given.
+CRITICAL FORMATTING INSTRUCTIONS:
+- Do not use any bolding (no **).
+- Separate each finding with a clear new line.
+- Do NOT include any introductory phrases like 'Here’s a simple breakdown of your test results' or 'Here is a breakdown'. Start directly with the results."""
 
         user_content = f"""Biomarkers:
 miR-134: {data.get('mir134', 'N/A')}
@@ -207,7 +211,16 @@ Risk Prediction: {data.get('prediction', 'Unknown')}"""
             return f"API Error ({response.status_code}): {response.text}"
 
         if "choices" in output and len(output["choices"]) > 0:
-            return output["choices"][0]["message"]["content"].strip()
+            text = output["choices"][0]["message"]["content"].strip()
+            # Cleanup user-specified artifacts
+            text = text.replace("Here’s a simple breakdown of your test results: -", "")
+            text = text.replace("Here’s a simple breakdown of your test results:", "")
+            text = text.replace("Here's a simple breakdown of your test results: -", "")
+            text = text.replace("Here's a simple breakdown of your test results:", "")
+            text = text.replace("**", "")
+            # Replace inline dashes with newlines if needed, though prompt should handle it
+            text = text.replace(" - ", "\n")
+            return text.strip()
         elif "error" in output:
             return f"Model error: {output['error']}"
 

@@ -36,17 +36,17 @@ const InfoCards = () => {
         </p>
 
         <p style={styles.text}>
-          The system processes uploaded EEG data to extract statistical features such as:
+          The system processes uploaded EDF data using a deep learning pipeline to extract:
         </p>
 
         <ul style={styles.list}>
-          <li>Mean signal amplitude</li>
-          <li>Signal variance and standard deviation</li>
-          <li>Temporal fluctuations indicating abnormal activity</li>
+          <li><strong>EEGNet Classification</strong>: Convolutional neural network detecting Ictal, Pre-ictal, and Interictal phases.</li>
+          <li><strong>Spectral Analysis</strong>: Band power extraction across Delta, Theta, Alpha, Beta, and Gamma frequencies.</li>
+          <li><strong>Signal Amplitude</strong>: Root Mean Square (RMS) calculations tracking channel activation.</li>
         </ul>
 
         <p style={styles.text}>
-          These features help identify irregular neural dynamics associated with seizure risk.
+          These advanced features help identify irregular neural dynamics associated with seizure risk.
         </p>
       </div>
 
@@ -56,10 +56,10 @@ const InfoCards = () => {
 
         <ol style={styles.list}>
           <li>Input salivary biomarker concentrations</li>
-          <li>Upload EEG signal data (CSV format)</li>
-          <li>Extract statistical and temporal features from EEG</li>
+          <li>Upload continuous EEG signal data (EDF format)</li>
+          <li>Process EEG using deep learning and spectral analysis</li>
           <li>Combine multimodal inputs into a predictive model</li>
-          <li>Generate a risk score and classification output</li>
+          <li>Generate an AI-driven clinical report and risk score</li>
         </ol>
 
         <p style={styles.text}>
