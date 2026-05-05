@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import Plot from "react-plotly.js";
 import { jsPDF } from "jspdf";
+import "jspdf-autotable";
 
 const Predictor = ({ user }) => {
   const [form, setForm] = useState({
@@ -71,39 +72,93 @@ const Predictor = ({ user }) => {
     if (!result) return;
     const doc = new jsPDF();
     
+    // Header
+    doc.setFillColor(30, 41, 59); // Dark blue header
+    doc.rect(0, 0, 210, 30, 'F');
+    doc.setTextColor(255, 255, 255);
     doc.setFontSize(22);
-    doc.text("Clinical AI Report", 20, 20);
-    
-    doc.setFontSize(14);
-    doc.text(`Patient Name: ${form.patient_name || "Unknown"}`, 20, 35);
-    doc.text(`Age: ${form.age || "Unknown"}`, 20, 45);
-    doc.text(`Gender: ${form.gender}`, 20, 55);
-    doc.text(`Overall Risk Prediction: ${result.prediction}`, 20, 65);
-    doc.text(`Combined Risk Score: ${typeof result.score === 'number' ? result.score.toFixed(1) : result.score}`, 20, 75);
-    
-    doc.setFontSize(16);
-    doc.text("Biomarker Analysis", 20, 90);
-    doc.setFontSize(12);
-    doc.text(`miR-134: ${form.mir134}`, 20, 100);
-    doc.text(`IL-6: ${form.il6}`, 20, 110);
-    doc.text(`S100B: ${form.s100b}`, 20, 120);
+    doc.setFont("helvetica", "bold");
+    doc.text("Clinical AI Risk Assessment", 105, 20, { align: "center" });
 
+    // Patient Info Table
+    doc.autoTable({
+      startY: 40,
+      head: [['Patient Details', 'Value']],
+      body: [
+        ['Name', form.patient_name || "Unknown"],
+        ['Age', form.age || "Unknown"],
+        ['Gender', form.gender],
+        ['Risk Prediction', result.prediction],
+        ['Combined Risk Score', typeof result.score === 'number' ? result.score.toFixed(1) : result.score],
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [56, 189, 248] },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 } }
+    });
+
+    // Biomarkers Table
+    let previousY = doc.lastAutoTable ? doc.lastAutoTable.finalY : 70;
+    doc.autoTable({
+      startY: previousY + 10,
+      head: [['Biomarker Analysis', 'Level']],
+      body: [
+        ['miR-134', form.mir134],
+        ['IL-6', form.il6],
+        ['S100B', form.s100b],
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [56, 189, 248] },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 } }
+    });
+
+    // EEG Table
+    previousY = doc.lastAutoTable ? doc.lastAutoTable.finalY : previousY + 40;
     if (result.eeg_data && result.eeg_data.meta) {
-      doc.setFontSize(16);
-      doc.text("EEG Segment Summary", 20, 135);
-      doc.setFontSize(12);
       const m = result.eeg_data.meta;
-      doc.text(`Total Windows: ${m.n_windows}`, 20, 145);
-      doc.text(`Ictal Windows: ${m.ictal_windows}`, 20, 155);
-      doc.text(`Pre-ictal Windows: ${m.preictal_windows}`, 20, 165);
+      doc.autoTable({
+        startY: previousY + 10,
+        head: [['EEG Segment Summary', 'Value']],
+        body: [
+          ['Total Windows', m.n_windows],
+          ['Ictal Windows', m.ictal_windows],
+          ['Pre-ictal Windows', m.preictal_windows],
+          ['Interictal Windows', m.interictal_windows],
+        ],
+        theme: 'grid',
+        headStyles: { fillColor: [56, 189, 248] },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 } }
+      });
+      previousY = doc.lastAutoTable ? doc.lastAutoTable.finalY : previousY + 40;
+    }
+
+    // AI Explanation
+    let finalY = previousY + 15;
+    doc.setTextColor(30, 41, 59);
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("AI Clinical Explanation", 14, finalY);
+    
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    const splitText = doc.splitTextToSize(result.report || "No explanation available", 180);
+    
+    // Check if text fits, if not add page
+    if (finalY + 10 + (splitText.length * 6) > 280) {
+      doc.addPage();
+      finalY = 20;
     }
     
-    doc.setFontSize(16);
-    doc.text("AI Explanation", 20, result.eeg_data ? 180 : 140);
-    doc.setFontSize(12);
-    const splitText = doc.splitTextToSize(result.report || "No explanation available", 170);
-    doc.text(splitText, 20, result.eeg_data ? 190 : 150);
+    doc.text(splitText, 14, finalY + 8);
     
+    // Footer
+    const pageCount = doc.internal.getNumberOfPages();
+    for(let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`Generated automatically by Multimodal Epilepsy Risk Assessment AI - Page ${i}`, 105, 290, { align: 'center' });
+    }
+
     doc.save(`${form.patient_name || "Patient"}_Clinical_Report.pdf`);
   };
 

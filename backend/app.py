@@ -164,10 +164,12 @@ def generate_report(data):
             meta = data["meta"]
             eeg_info = f"{meta.get('ictal_windows', 0)} ictal windows and {meta.get('preictal_windows', 0)} pre-ictal windows detected out of {meta.get('n_windows', 0)} total."
 
-        prompt = f"""<|system|>
-You are an expert neurologist AI. Write a concise, professional clinical report based on the following patient data. Provide a short summary explaining the biomarker findings, the EEG findings, and the overall seizure risk. Do not output anything other than the report. Keep it under 200 words.
-<|user|>
-Biomarkers:
+        system_content = """You are a factual medical AI assisting a patient. 
+Write a concise, easy-to-understand summary explaining their results based ONLY on the provided findings. 
+Use plain language that the general public can understand. Avoid complex medical jargon. Explain what the biomarker levels and EEG findings mean in simple, everyday terms.
+Do not hallucinate, do not add external information, and do not make assumptions beyond what is explicitly given."""
+
+        user_content = f"""Biomarkers:
 miR-134: {data.get('mir134', 'N/A')}
 IL-6: {data.get('il6', 'N/A')}
 S100B: {data.get('s100b', 'N/A')}
@@ -175,35 +177,45 @@ S100B: {data.get('s100b', 'N/A')}
 EEG Analysis:
 {eeg_info}
 
-Risk Prediction: {data.get('prediction', 'Unknown')}
-<|assistant|>
-"""
+Risk Prediction: {data.get('prediction', 'Unknown')}"""
 
-        API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
+        API_URL = "https://router.huggingface.co/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {HF_API_KEY}"
+        }
+
+        payload = {
+            "model": "deepseek-ai/DeepSeek-V4-Pro:novita",
+            "messages": [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_content}
+            ],
+            "max_tokens": 250,
+            "temperature": 0.1
         }
 
         response = requests.post(
             API_URL,
             headers=headers,
-            json={"inputs": prompt, "parameters": {"max_new_tokens": 250, "return_full_text": False, "temperature": 0.2}},
-            timeout=15
+            json=payload,
+            timeout=60
         )
 
-        output = response.json()
+        try:
+            output = response.json()
+        except Exception as e:
+            return f"API Error ({response.status_code}): {response.text}"
 
-        if isinstance(output, list):
-            text = output[0].get("generated_text", "No report generated")
-            return text.strip()
-        elif isinstance(output, dict) and "error" in output:
+        if "choices" in output and len(output["choices"]) > 0:
+            return output["choices"][0]["message"]["content"].strip()
+        elif "error" in output:
             return f"Model error: {output['error']}"
 
-        return str(output)
+        return f"Unexpected API response: {str(output)}"
 
     except Exception as e:
         print("LLM error:", e)
-        return "Report generation failed"
+        return f"Report generation failed: {str(e)}"
 
 
 # ---------------- API ROUTE ----------------
@@ -280,4 +292,4 @@ def predict():
 
 # ---------------- RUN SERVER ----------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True)
